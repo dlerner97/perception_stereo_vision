@@ -21,15 +21,16 @@ class StereoVision:
     The Stereo Vision class takes two images along with some camera parameters to calculate the approximate depth of objects in an image. Returns a heat map. 
     """
     
-    def __init__(self, cam_params, img0, img1, ds) -> None:
+    def __init__(self, cam_params, img0, img1, ds, debug=False) -> None:
         self.img0 = img0
         self.img1 = img1
         self.cam_params = cam_params
         self.img_count = 0
         self.ds = ds
+        self.debug = debug
 
     # Get keypoint matches with SIFT
-    def get_matches(self, img0=None, img1=None, num_matches=70, debug=False):
+    def get_matches(self, img0=None, img1=None, num_matches=70):
         if img0 is None:
             img0 = self.img0
         if img1 is None:
@@ -47,7 +48,7 @@ class StereoVision:
         matches = sorted(matches, key = lambda x: x.distance)
         
         # Display matching
-        if debug:
+        if self.debug:
             match_img = cv2.drawMatches(img0, keypts_0, img1, keypts_1, matches[:num_matches], img1, flags=2)
             cv2.imshow(f"img{self.img_count}", cv2.drawKeypoints(img0, keypts_0, img0))
             self.img_count += 1
@@ -104,9 +105,8 @@ class StereoVision:
         return R, t, F
       
     # Rectify the images such that every epipolar line is horizontal  
-    def rectify_images(self, debug=False):
-        matches, keypts_0, keypts_1 = self.get_matches(debug=debug)
-        R, t, F = self.get_cameras_rel((matches, keypts_0, keypts_1))
+    def rectify_images(self, img_info):
+        R, t, F = img_info
         _, H0, H1 = cv2.stereoRectifyUncalibrated(self.sorted_keypts_0, self.sorted_keypts_1, F, self.img0.shape[:2][::-1])
         print(10*"-", "H0", 10*"-")
         print(H0)
@@ -116,7 +116,7 @@ class StereoVision:
         print(H1)
         print(24*"-")
         
-        if debug:
+        if self.debug:
             self.disp_epipoles(self.img0, self.img1, F)
            
         # Recalculate F and keypoint locations while accounting for rectification
@@ -131,19 +131,19 @@ class StereoVision:
         img1 = cv2.warpPerspective(self.img1, H1, self.img1.shape[:2][::-1])
         
         # Display epipolar lines
-        if debug:
+        if self.debug:
             self.disp_epipoles(img0, img1, F)
             
         return img0, img1, F
         
     # Apply window matching to left and right images to get disparity
-    def apply_window_matching(self, window_size=11, debug=False):
-        img0, img1, F = self.rectify_images(debug=debug)       
+    def apply_window_matching(self, rect_info, window_size=11, blur=15):
+        img0, img1, F = rect_info
         win_r = window_size//2
                
         # Blur image
-        img0_gray = cv2.GaussianBlur(cv2.cvtColor(img0, cv2.COLOR_BGR2GRAY), (15, 15), 0)
-        img1_gray = cv2.GaussianBlur(cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY), (15, 15), 0)
+        img0_gray = cv2.GaussianBlur(cv2.cvtColor(img0, cv2.COLOR_BGR2GRAY), (blur, blur), 0)
+        img1_gray = cv2.GaussianBlur(cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY), (blur, blur), 0)
         s0 = img0_gray.shape[1]
         s1 = img1_gray.shape[1]
   
@@ -179,7 +179,7 @@ class StereoVision:
                 px1 = (np.argmax(res) + win_r + 1)%s0
                 disparity[-1].append(abs(px1-px0))
                 
-                if debug:
+                if self.debug:
                     res_norm = np.round(255*(res-min(res))/(max(res)-min(res))).astype(np.uint8)
                     res_norm_ls = np.vstack((res_norm, res_norm, res_norm, res_norm, res_norm, res_norm, res_norm))
                     
@@ -210,13 +210,13 @@ class StereoVision:
         print ("\033[A                             \033[A")
         print('[' + 46*"|" + "] 100% Finished!")
         
-        if debug:
+        if self.debug:
             print(DataFrame(disparity))
         
         return np.array(disparity)
 
     # Calculates depths from disparity and camera parameters and displays images
-    def get_depth_map(self, disparity, disparity_thresh=500, depth_thresh=6000, debug=False):
+    def get_depth_map(self, disparity, disparity_thresh=500, depth_thresh=6000):
         self.disp_heat_map(disparity, "disparity")
         
         plt.hist(disparity.ravel(), 256, [min(disparity.ravel()),max(disparity.ravel())])
@@ -302,10 +302,44 @@ if __name__ == "__main__":
     img1 = cv2.imread(f"Dataset {ds}/im1.png")
     img0 = VideoHandler.resize_frame(img0, 25)
     img1 = VideoHandler.resize_frame(img1, 25)
+    
+    # disparity_thresh=500, depth_thresh=6000 window_size=11, blur num_matches
+    
+    param_dict = {
+        
+        '1': {
+            "disparity_thresh" : 500,
+            "depth_thresh" : 6000,
+            "window_size" : 11,
+            "blur" : 15,
+            "num_matches" : 50
+        },
+        
+        '2': {
+            "disparity_thresh" : 500,
+            "depth_thresh" : 6000,
+            "window_size" : 11,
+            "blur" : 15,
+            "num_matches" : 50
+        },
+        
+        '3': {
+            "disparity_thresh" : 500,
+            "depth_thresh" : 6000,
+            "window_size" : 11,
+            "blur" : 15,
+            "num_matches" : 50
+        }
+    }
      
-    stereo_vis = StereoVision(cam_params[f"d{ds}"], img0, img1, ds)
-    disparity = stereo_vis.apply_window_matching(debug=True)
-    stereo_vis.get_depth_map(disparity, debug=True)
+    stereo_vis = StereoVision(cam_params[f"d{ds}"], img0, img1, ds, debug=False)
+    print(param_dict.keys())
+    
+    matches, keypts_0, keypts_1 = stereo_vis.get_matches(num_matches=param_dict[ds]["num_matches"])
+    R, t, F = stereo_vis.get_cameras_rel((matches, keypts_0, keypts_1))
+    img0, img1, F = stereo_vis.rectify_images((R,t,F))
+    disparity = stereo_vis.apply_window_matching((img0,img1,F), window_size=param_dict[ds]["window_size"], blur=param_dict[ds]["blur"])
+    stereo_vis.get_depth_map(disparity, disparity_thresh=param_dict[ds]["disparity_thresh"], depth_thresh=param_dict[ds]["depth_thresh"])
     
     # Calculate time elapsed
     time_elapsed_s = time() - start_time
