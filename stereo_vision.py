@@ -1,14 +1,14 @@
 # =========================== Imports =========================== #
 import cv2
+import sys
 import json
 import numpy as np
 from time import time
 from os import system
-from numpy.lib.function_base import disp
+from pandas import DataFrame
+import matplotlib.pyplot as plt
 from scipy.signal import convolve2d
 from video_handler import VideoHandler
-import matplotlib.pyplot as plt
-from pandas import DataFrame
 
 # =========================== StereoVision Class =========================== #
 class StereoVision:
@@ -173,10 +173,9 @@ class StereoVision:
                 seg_std = np.std(img_segment)
                 img_segment = (img_segment - seg_mean)/(seg_std+.01)
                 
-                # Convolve the kernel and image to find the maximum normalized correlation 
+                # Convolve the kernel and image to find the maximum normalized correlation and corresponding disparit
                 res = convolve2d(img_segment, kernel, mode='valid')
                 px1 = (np.argmax(res) + win_r + 1)%s0
-                
                 disparity[-1].append(abs(px1-px0))
                 
                 if debug:
@@ -208,47 +207,55 @@ class StereoVision:
             print('[' + round(per_done/2)*"|", (46-round(per_done/2))*" " + ']', f" {round(per_done, 2)}%")
            
         print ("\033[A                             \033[A")
-        print('[' + 46*"|", "  ", "] 100% Finished!")
+        print('[' + 46*"|" + "] 100% Finished!")
         
         if debug:
             print(DataFrame(disparity))
         
         return np.array(disparity)
 
-    def get_depth_map(self, disparity, disparity_thresh=400, depth_thresh=7000, debug=False):
+    # Calculates depths from disparity and camera parameters and displays images
+    def get_depth_map(self, disparity, disparity_thresh=500, depth_thresh=6000, debug=False):
         self.disp_heat_map(disparity, "disparity")
         
         plt.hist(disparity.ravel(), 256, [min(disparity.ravel()),max(disparity.ravel())])
         plt.show()
         
+        # Saturate disparity results to remove significant outlier
         disparity_thresholded = disparity.copy()
         disparity_thresholded[disparity_thresholded > disparity_thresh] = disparity_thresh
         self.disp_heat_map(disparity_thresholded, "disparity thresholded")
             
+        # Get baseline distance and focal length from camera parameters
         baseline = self.cam_params["baseline"]
         focal_len = self.cam_params["cam0"][0][0]
         bf = baseline*focal_len
         
+        # Calculate depth
         depth = bf/disparity_thresholded
         depth[depth > depth_thresh] = depth_thresh
-        print(depth)
-        self.disp_heat_map(depth, "depth")
         
+        # Display depth in map
+        self.disp_heat_map(depth, "depth")
         cv2.waitKey(0)
-                      
+                  
+    # Utility function for displaying depth results in grayscale and heat map images
     def disp_heat_map(self, img_like, name):  
+        # Scale map to uint8
         min_val = np.min(img_like)
         max_val = np.max(img_like)
         img_map = np.round(255-255*((img_like.ravel() - min_val)/(max_val - min_val + 1))**1.6).astype(np.uint8).reshape(img_like.shape)
         cv2.imshow(f"{name} gray map", img_map)
-        cv2.imwrite(f"{name}_gray_map.png", img_map)
-              
+        cv2.imwrite(f"{name}_gray_map.jpg", img_map)
+        
+        # Convert and plot as color map (pyplot Jet)   
         colormap = plt.get_cmap('jet')
         heatmap = (colormap(img_map) * 2**16).astype(np.uint16)
         heatmap = cv2.cvtColor(heatmap, cv2.COLOR_RGB2BGR)
         cv2.imshow(f"{name} heat map", heatmap)
-        cv2.imwrite(f"{name}_heat_map.png", img_map)
+        cv2.imwrite(f"{name}_heat_map.jpg", img_map)
 
+    # Display epipoles
     def disp_epipoles(self, img0, img1, F):   
         img0 = img0.copy()
         img1 = img1.copy()
@@ -277,6 +284,7 @@ class StereoVision:
         self.img_count += 1
         cv2.waitKey(0)
         
+# =========================== Main =========================== #
 if __name__ == "__main__":
     system('cls')
     
@@ -286,14 +294,17 @@ if __name__ == "__main__":
         cam_params = json.load(file)
         
     ds = 1
+    if len(sys.argv) > 1:
+        ds = sys.argv[1]
+    
     img0 = cv2.imread(f"Dataset {ds}/im0.png")
     img1 = cv2.imread(f"Dataset {ds}/im1.png")
     img0 = VideoHandler.resize_frame(img0, 25)
     img1 = VideoHandler.resize_frame(img1, 25)
-   
+     
     stereo_vis = StereoVision(cam_params[f"d{ds}"], img0, img1)
-    disparity = stereo_vis.apply_window_matching()
-    stereo_vis.get_depth_map(disparity)
+    disparity = stereo_vis.apply_window_matching(debug=True)
+    stereo_vis.get_depth_map(disparity, debug=True)
     
     # Calculate time elapsed
     time_elapsed_s = time() - start_time
