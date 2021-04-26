@@ -8,7 +8,7 @@ from os import system
 from pandas import DataFrame
 import matplotlib.pyplot as plt
 from scipy.signal import convolve2d
-from video_handler import VideoHandler
+from video_handler import VideoHandler, VideoBuffer
 
 # =========================== StereoVision Class =========================== #
 class StereoVision:
@@ -180,7 +180,9 @@ class StereoVision:
                 disparity[-1].append(abs(px1-px0))
                 
                 if self.debug:
-                    res_norm = np.round(255*(res-min(res))/(max(res)-min(res))).astype(np.uint8)
+                    min_res = np.min(res)
+                    max_res = np.max(res)
+                    res_norm = np.round(255*(res-min_res)/(max_res-min_res)).astype(np.uint8)[1,:]
                     res_norm_ls = np.vstack((res_norm, res_norm, res_norm, res_norm, res_norm, res_norm, res_norm))
                     
                     img0_gray_cp = img0_gray.copy()
@@ -207,7 +209,7 @@ class StereoVision:
             per_done = 100*y/(sy-(win_r+1))
             print('[' + round(per_done/2)*"|", (46-round(per_done/2))*" " + ']', f" {round(per_done, 2)}%")
            
-        print ("\033[A                             \033[A")
+        print ("\033[A                                       \033[A")
         print('[' + 46*"|" + "] 100% Finished!")
         
         if self.debug:
@@ -318,9 +320,9 @@ if __name__ == "__main__":
         '2': {
             "disparity_thresh" : 500,
             "depth_thresh" : 6000,
-            "window_size" : 11,
-            "blur" : 15,
-            "num_matches" : 50
+            "window_size" : 25,
+            "blur" : 9,
+            "num_matches" : 200
         },
         
         '3': {
@@ -331,9 +333,16 @@ if __name__ == "__main__":
             "num_matches" : 50
         }
     }
+    
+    print("-------- Stereo Parameters --------")
+    print("Window Size:", param_dict[ds]["window_size"], "px")
+    print("Disparity High Threshold:", param_dict[ds]["disparity_thresh"], "px")
+    print("Depth High Threshold:", param_dict[ds]["depth_thresh"], "mm")
+    print("Gaussian Blur:", param_dict[ds]["blur"], "px window length")
+    print("Number of SIFT matches in F estimation", param_dict[ds]["num_matches"], "matches")
+    print("-----------------------------------\n")
      
     stereo_vis = StereoVision(cam_params[f"d{ds}"], img0, img1, ds, debug=False)
-    print(param_dict.keys())
     
     matches, keypts_0, keypts_1 = stereo_vis.get_matches(num_matches=param_dict[ds]["num_matches"])
     R, t, F = stereo_vis.get_cameras_rel((matches, keypts_0, keypts_1))
