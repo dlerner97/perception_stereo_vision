@@ -8,6 +8,7 @@ from os import system
 from pandas import DataFrame
 import matplotlib.pyplot as plt
 from scipy.signal import convolve2d
+from multiprocessing import Process
 from video_handler import VideoHandler, VideoBuffer
 
 # =========================== StereoVision Class =========================== #
@@ -49,10 +50,12 @@ class StereoVision:
         
         # Display matching
         if self.debug:
-            match_img = cv2.drawMatches(img0, keypts_0, img1, keypts_1, matches[:num_matches], img1, flags=2)
-            cv2.imshow(f"img{self.img_count}", cv2.drawKeypoints(img0, keypts_0, img0))
+            img0_cp = img0.copy()
+            img1_cp = img1.copy()
+            match_img = cv2.drawMatches(img0_cp, keypts_0, img1_cp, keypts_1, matches[:num_matches], img1_cp, flags=2)
+            cv2.imshow(f"img{self.img_count}", cv2.drawKeypoints(img0_cp, keypts_0, img0_cp))
             self.img_count += 1
-            cv2.imshow(f"img{self.img_count}", cv2.drawKeypoints(img1, keypts_1, img1))
+            cv2.imshow(f"img{self.img_count}", cv2.drawKeypoints(img1_cp, keypts_1, img1_cp))
             self.img_count += 1
             cv2.imshow("matches", match_img)
             cv2.waitKey(0)
@@ -218,7 +221,7 @@ class StereoVision:
         return np.array(disparity)
 
     # Calculates depths from disparity and camera parameters and displays images
-    def get_depth_map(self, disparity, disparity_thresh=500, depth_thresh=6000):
+    def get_depth_map(self, disparity, disparity_thresh=500, depth_thresh=6000, gamma=1):
         self.disp_heat_map(disparity, "disparity")
         
         plt.hist(disparity.ravel(), 256, [min(disparity.ravel()),max(disparity.ravel())])
@@ -243,11 +246,11 @@ class StereoVision:
         cv2.waitKey(0)
                   
     # Utility function for displaying depth results in grayscale and heat map images
-    def disp_heat_map(self, img_like, name):  
+    def disp_heat_map(self, img_like, name, gamma):  
         # Scale map to uint8
         min_val = np.min(img_like)
         max_val = np.max(img_like)
-        img_map = np.round(255-255*((img_like.ravel() - min_val)/(max_val - min_val + 1))**1.6).astype(np.uint8).reshape(img_like.shape)
+        img_map = np.round(255-255*((img_like.ravel() - min_val)/(max_val - min_val + 1))**gamma).astype(np.uint8).reshape(img_like.shape)
         cv2.imshow(f"{name} gray map", img_map)
         cv2.imwrite(f"{name}_gray_map_{self.ds}.jpg", img_map)
         
@@ -291,21 +294,23 @@ class StereoVision:
 if __name__ == "__main__":
     system('cls')
     
-    start_time = time()
     cam_params = {}
     with open("cam_params.json", 'r') as file:
         cam_params = json.load(file)
         
     ds = 1
+    debug = False
     if len(sys.argv) > 1:
         ds = sys.argv[1]
+        if "--debug" in sys.argv or "-d" in sys.argv:
+            debug = True
+    
+    start_time = time()
     
     img0 = cv2.imread(f"Dataset {ds}/im0.png")
     img1 = cv2.imread(f"Dataset {ds}/im1.png")
     img0 = VideoHandler.resize_frame(img0, 25)
     img1 = VideoHandler.resize_frame(img1, 25)
-    
-    # disparity_thresh=500, depth_thresh=6000 window_size=11, blur num_matches
     
     param_dict = {
         
@@ -314,15 +319,17 @@ if __name__ == "__main__":
             "depth_thresh" : 6000,
             "window_size" : 11,
             "blur" : 15,
-            "num_matches" : 50
+            "num_matches" : 50,
+            "gamma" : 1.6
         },
         
         '2': {
             "disparity_thresh" : 500,
             "depth_thresh" : 6000,
-            "window_size" : 25,
+            "window_size" : 21,
             "blur" : 9,
-            "num_matches" : 200
+            "num_matches" : 200,
+            "gamma" : 3
         },
         
         '3': {
@@ -330,26 +337,28 @@ if __name__ == "__main__":
             "depth_thresh" : 6000,
             "window_size" : 11,
             "blur" : 15,
-            "num_matches" : 50
+            "num_matches" : 50,
+            "gamma" : 3
         }
     }
     
+
     print("-------- Stereo Parameters --------")
     print("Window Size:", param_dict[ds]["window_size"], "px")
     print("Disparity High Threshold:", param_dict[ds]["disparity_thresh"], "px")
     print("Depth High Threshold:", param_dict[ds]["depth_thresh"], "mm")
     print("Gaussian Blur:", param_dict[ds]["blur"], "px window length")
-    print("Number of SIFT matches in F estimation", param_dict[ds]["num_matches"], "matches")
+    print("Number of SIFT matches in F estimation:", param_dict[ds]["num_matches"], "matches")
     print("-----------------------------------\n")
-     
-    stereo_vis = StereoVision(cam_params[f"d{ds}"], img0, img1, ds, debug=False)
+    
+    stereo_vis = StereoVision(cam_params[f"d{ds}"], img0, img1, ds, debug=debug)
     
     matches, keypts_0, keypts_1 = stereo_vis.get_matches(num_matches=param_dict[ds]["num_matches"])
     R, t, F = stereo_vis.get_cameras_rel((matches, keypts_0, keypts_1))
     img0, img1, F = stereo_vis.rectify_images((R,t,F))
     disparity = stereo_vis.apply_window_matching((img0,img1,F), window_size=param_dict[ds]["window_size"], blur=param_dict[ds]["blur"])
-    stereo_vis.get_depth_map(disparity, disparity_thresh=param_dict[ds]["disparity_thresh"], depth_thresh=param_dict[ds]["depth_thresh"])
-    
+    stereo_vis.get_depth_map(disparity, disparity_thresh=param_dict[ds]["disparity_thresh"], depth_thresh=param_dict[ds]["depth_thresh"], gamma=param_dict[ds]["gamma"])
+
     # Calculate time elapsed
     time_elapsed_s = time() - start_time
     time_elapsed_mins = time_elapsed_s//60
