@@ -177,9 +177,9 @@ class StereoVision:
                 seg_std = np.std(img_segment)
                 img_segment = (img_segment - seg_mean)/(seg_std+.01)
                 
-                # Convolve the kernel and image to find the maximum normalized correlation and corresponding disparit
+                # Convolve the kernel and image to find the maximum normalized correlation and corresponding disparity
                 res = convolve2d(img_segment, kernel, mode='valid')
-                px1 = (np.argmax(res) + win_r + 1)%s0
+                px1 = (np.argmax(res) + win_r + 1)%(s0-2*win_r)
                 disparity[-1].append(abs(px1-px0))
                 
                 if self.debug:
@@ -203,9 +203,16 @@ class StereoVision:
                     elif k == ord('w'):
                         wait = 1 - wait
                     elif k == ord('e'):
-                        print(kernel)
-                        print(img_segment)
-                        plt.plot(res)
+                        print('px0:', px0)
+                        print('px1:', px1)
+                        print(f"Disparity: {abs(px1-px0)}")
+                        # print(kernel)
+                        # print(img_segment)
+                        plt.imshow(img0_gray_cp)
+                        
+                        plt.figure()
+                        plt.imshow(img1_gray_cp)
+                        # plt.plot(res, '.')
                         plt.show()
 
             print ("\033[A                                          \033[A")
@@ -222,7 +229,7 @@ class StereoVision:
 
     # Calculates depths from disparity and camera parameters and displays images
     def get_depth_map(self, disparity, disparity_thresh=500, depth_thresh=6000, gamma=1):
-        self.disp_heat_map(disparity, "disparity")
+        self.disp_heat_map(disparity, "disparity", gamma)
         
         plt.hist(disparity.ravel(), 256, [min(disparity.ravel()),max(disparity.ravel())])
         plt.show()
@@ -230,7 +237,7 @@ class StereoVision:
         # Saturate disparity results to remove significant outlier
         disparity_thresholded = disparity.copy()
         disparity_thresholded[disparity_thresholded > disparity_thresh] = disparity_thresh
-        self.disp_heat_map(disparity_thresholded, "disparity thresholded")
+        self.disp_heat_map(disparity_thresholded, f"disparity thresholded {self.ds}", gamma)
             
         # Get baseline distance and focal length from camera parameters
         baseline = self.cam_params["baseline"]
@@ -242,7 +249,7 @@ class StereoVision:
         depth[depth > depth_thresh] = depth_thresh
         
         # Display depth in map
-        self.disp_heat_map(depth, "depth")
+        self.disp_heat_map(depth, f"depth {self.df}")
         cv2.waitKey(0)
                   
     # Utility function for displaying depth results in grayscale and heat map images
@@ -259,7 +266,7 @@ class StereoVision:
         heatmap = (colormap(img_map) * 2**16).astype(np.uint16)
         heatmap = cv2.cvtColor(heatmap, cv2.COLOR_RGB2BGR)
         cv2.imshow(f"{name} heat map", heatmap)
-        cv2.imwrite(f"{name}_heat_map_{self.ds}.jpg", img_map)
+        cv2.imwrite(f"{name}_heat_map_{self.ds}.jpg", heatmap)
 
     # Display epipoles
     def disp_epipoles(self, img0, img1, F):   
@@ -315,7 +322,7 @@ if __name__ == "__main__":
     param_dict = {
         
         '1': {
-            "disparity_thresh" : 500,
+            "disparity_thresh" : 300, # 500,
             "depth_thresh" : 6000,
             "window_size" : 11,
             "blur" : 15,
@@ -333,7 +340,7 @@ if __name__ == "__main__":
         },
         
         '3': {
-            "disparity_thresh" : 500,
+            "disparity_thresh" : 200,
             "depth_thresh" : 6000,
             "window_size" : 11,
             "blur" : 15,
