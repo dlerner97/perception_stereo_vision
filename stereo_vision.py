@@ -21,11 +21,12 @@ class StereoVision:
     The Stereo Vision class takes two images along with some camera parameters to calculate the approximate depth of objects in an image. Returns a heat map. 
     """
     
-    def __init__(self, cam_params, img0, img1) -> None:
+    def __init__(self, cam_params, img0, img1, ds) -> None:
         self.img0 = img0
         self.img1 = img1
         self.cam_params = cam_params
         self.img_count = 0
+        self.ds = ds
 
     # Get keypoint matches with SIFT
     def get_matches(self, img0=None, img1=None, num_matches=70, debug=False):
@@ -246,14 +247,14 @@ class StereoVision:
         max_val = np.max(img_like)
         img_map = np.round(255-255*((img_like.ravel() - min_val)/(max_val - min_val + 1))**1.6).astype(np.uint8).reshape(img_like.shape)
         cv2.imshow(f"{name} gray map", img_map)
-        cv2.imwrite(f"{name}_gray_map.jpg", img_map)
+        cv2.imwrite(f"{name}_gray_map_{self.ds}.jpg", img_map)
         
         # Convert and plot as color map (pyplot Jet)   
         colormap = plt.get_cmap('jet')
         heatmap = (colormap(img_map) * 2**16).astype(np.uint16)
         heatmap = cv2.cvtColor(heatmap, cv2.COLOR_RGB2BGR)
         cv2.imshow(f"{name} heat map", heatmap)
-        cv2.imwrite(f"{name}_heat_map.jpg", img_map)
+        cv2.imwrite(f"{name}_heat_map_{self.ds}.jpg", img_map)
 
     # Display epipoles
     def disp_epipoles(self, img0, img1, F):   
@@ -302,7 +303,7 @@ if __name__ == "__main__":
     img0 = VideoHandler.resize_frame(img0, 25)
     img1 = VideoHandler.resize_frame(img1, 25)
      
-    stereo_vis = StereoVision(cam_params[f"d{ds}"], img0, img1)
+    stereo_vis = StereoVision(cam_params[f"d{ds}"], img0, img1, ds)
     disparity = stereo_vis.apply_window_matching(debug=True)
     stereo_vis.get_depth_map(disparity, debug=True)
     
